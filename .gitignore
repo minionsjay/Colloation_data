@@ -1,0 +1,30 @@
+# Environment
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Models (large files, downloaded separately)
+models/
+
+# Runtime data (generated outputs)
+data/*
+!data/raw_bulk_csv/
+!data/cleaned_original/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/

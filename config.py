@@ -52,8 +52,13 @@ COUNTRY_SUBREDDITS: dict[str, list[str]] = {
     "TR": ["turkey", "TurkeyJerky"],
     "SA": ["saudiarabia", "Arabs"],
     "BR": ["brasil", "Brazil", "futebol"],
-    "MX": ["mexico", "mexicanfood"],
-    "ZA": ["southafrica"],
+    "MX": ["mexico", "mexicanfood", "espanolmexico"],
+    "ZA": ["southafrica", "afrikaans"],
+    "AE": ["dubai", "UAE", "abudhabi", "Emiratis",
+           "DubaiPetrolHeads", "DubaiCentral", "DubaiGaming",
+           "Ajman", "Sharjah", "RasAlKhaimah"],
+    "PH": ["Philippines", "CasualPH", "ChikaPH", "phinvest"],
+    "VN": ["VietNam", "Vietnamese", "TroChuyenLinhTinh"],
 }
 
 COUNTRY_NAMES: dict[str, str] = {
@@ -65,6 +70,9 @@ COUNTRY_NAMES: dict[str, str] = {
     "BR": "Brazil",
     "MX": "Mexico",
     "ZA": "South Africa",
+    "AE": "United Arab Emirates",
+    "PH": "Philippines",
+    "VN": "Vietnam",
 }
 
 # ── Forum spider configurations (non-Reddit) ─────────────────────────

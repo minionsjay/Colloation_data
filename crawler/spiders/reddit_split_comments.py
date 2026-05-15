@@ -27,7 +27,8 @@ class RedditSplitSpider(BaseSpider):
 
     def __init__(self, subreddits: list[str], limit: int = 25,
                  max_comments: int = 30, sort: str = "hot",
-                 pages: int = 1, top_time: str = "all"):
+                 pages: int = 1, top_time: str = "all",
+                 country: str = "TH", delay: float = 2.0):
         """
         Args:
             subreddits: list of subreddit names
@@ -36,14 +37,16 @@ class RedditSplitSpider(BaseSpider):
             sort: hot, new, top, controversial
             pages: how many listing pages to crawl per subreddit
             top_time: for sort=top, one of hour, day, week, month, year, all
+            country: ISO country code for metadata
+            delay: seconds between requests to same domain (default 2.0)
         """
-        super().__init__(source="reddit", country="TH", limit=limit)
+        super().__init__(source="reddit", country=country, limit=limit)
         self.subreddits = subreddits
         self.max_comments = max_comments
         self.sort = sort
         self.pages = pages
         self.top_time = top_time
-        self.client = PoliteClient(default_delay=5.0, http2=False)
+        self.client = PoliteClient(default_delay=delay, http2=False)
 
     def scrape(self) -> Iterator[RawPost]:
         for sub in self.subreddits:
@@ -86,39 +89,40 @@ class RedditSplitSpider(BaseSpider):
                     },
                 )
 
-                # Comments
-                comments, was_429 = self._scrape_comments_with_cooldown(post_url)
-                if was_429:
-                    consecutive_429 += 1
-                    if consecutive_429 >= 3:
-                        break  # too many 429s, move to next sub
-                else:
-                    consecutive_429 = 0
+                # Comments (skip if max_comments is 0)
+                if self.max_comments > 0:
+                    comments, was_429 = self._scrape_comments_with_cooldown(post_url)
+                    if was_429:
+                        consecutive_429 += 1
+                        if consecutive_429 >= 3:
+                            break  # too many 429s, move to next sub
+                    else:
+                        consecutive_429 = 0
 
-                for i, comment_text in enumerate(comments):
-                    yield RawPost(
-                        source=self.source, country=self.country,
-                        url=post_url,
-                        title=f"RE: {title}",
-                        body=f"[COMMENT #{i+1}]\n{comment_text}".strip(),
-                        author_hash=RawPost.hash_author("anonymous"),
-                        created_at=datetime.now(timezone.utc),
-                        metadata={
-                            "type": "comment",
-                            "parent_id": post_id,
-                            "comment_index": i + 1,
-                            "subreddit": sub,
-                            "sort": self.sort,
-                            "page": page + 1,
-                        },
-                    )
+                    for i, comment_text in enumerate(comments):
+                        yield RawPost(
+                            source=self.source, country=self.country,
+                            url=post_url,
+                            title=f"RE: {title}",
+                            body=f"[COMMENT #{i+1}]\n{comment_text}".strip(),
+                            author_hash=RawPost.hash_author("anonymous"),
+                            created_at=datetime.now(timezone.utc),
+                            metadata={
+                                "type": "comment",
+                                "parent_id": post_id,
+                                "comment_index": i + 1,
+                                "subreddit": sub,
+                                "sort": self.sort,
+                                "page": page + 1,
+                            },
+                        )
 
             if consecutive_429 >= 3:
                 break
             if not next_url:
                 break
             url = next_url
-            time.sleep(random.uniform(3, 5))  # inter-page delay
+            time.sleep(random.uniform(1.0, 2.0))  # inter-page delay
 
     def _scrape_listing(self, url: str) -> tuple[list[tuple[str, str, str]], str | None]:
         """Parse one listing page. Returns (results, next_url|None).
@@ -126,7 +130,10 @@ class RedditSplitSpider(BaseSpider):
         Uses data-permalink for thread URL, NOT a.title href (which may
         point to external links like v.redd.it for link posts).
         """
-        resp = self.client.get(url)
+        resp = self._listing_with_cooldown(url)
+        if resp is None:
+            return [], None
+
         soup = BeautifulSoup(resp.text, "lxml")
 
         results: list[tuple[str, str, str]] = []
@@ -173,6 +180,23 @@ class RedditSplitSpider(BaseSpider):
                 next_url = urljoin(self.BASE, next_href)
 
         return results, next_url
+
+    def _listing_with_cooldown(self, url: str) -> "httpx.Response | None":
+        """Fetch a listing page with 429 cooldown retry."""
+        import httpx as httpx_mod
+        try:
+            return self.client.get(url)
+        except httpx_mod.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                print(f"     429 cooldown 90s (listing)...", flush=True)
+                time.sleep(90)
+                try:
+                    return self.client.get(url)
+                except Exception:
+                    return None
+            raise
+        except Exception:
+            return None
 
     def _scrape_comments_with_cooldown(self, post_url: str) -> tuple[list[str], bool]:
         """Returns (comments, was_429). Cooldown 60s on 429."""

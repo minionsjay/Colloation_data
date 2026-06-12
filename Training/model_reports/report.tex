@@ -637,7 +637,7 @@ Adapter & 0.849 & 0.769 & 2.5MB & 快速原型 \\
 泰国 (TH) & 8 & 17,751 & \textbf{0.744} & LoRA LS + cal \\
 印尼 (ID v6) & 9 & 45,753 & \textbf{0.732} & LoRA LS + cal \\
 新加坡 (SG) & 9 & 25,543 & \textbf{0.704} & LoRA LS + cal \\
-南非 (ZA v1) & 9 & 21,329 & \textbf{0.589} & LoRA LS + cal \\
+南非 (ZA v2) & 9 & 24,259 & \textbf{0.696} & LoRA LS + cal (NIM 补充)\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -647,7 +647,24 @@ Adapter & 0.849 & 0.769 & 2.5MB & 快速原型 \\
 \input{_tables_perclass.tex}
 
 % ════════════════════════════════════════════════════
+
+\section{南非 (ZA) 模型演进}
+
+与印尼类似，南非的弱势标签 (ZA\_Severe\_Racism, ZA\_Xenophobia)
+在 v1 中表现极差，通过 NIM 数据生成补充后显著提升。
+图~\ref{fig:za-improve} 展示了 v1 到 v2 的各类别 F1 变化。
+
+\input{_tables_za_v2.tex}
+
+\textbf{关键发现:}
+\begin{enumerate}[itemsep=2pt]
+\item ZA\_Severe\_Racism (+0.556) 和 ZA\_Xenophobia (+0.437) 的提升幅度甚至超过了 ID\_SARA (+0.20)，因为 v1 的基线极低 (0.12 和 0.21)
+\item 这意味着 NIM 生成的小样本补充数据对"从零开始"的弱势类别特别有效
+\item 但 Dangerous\_Content ($-$0.022) 略有下降，可能与新数据引入的分布偏移有关
+\end{enumerate}
+
 \section{印尼 (ID) 模型演进}
+
 
 印尼模型经历了最完整的 6 版本迭代优化。
 

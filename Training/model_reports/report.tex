@@ -253,15 +253,83 @@ Avg Clean Recall & \textbf{0.816} & 0.614 & 0.896 \\
 将这些适配器加载到同一个“通用基座”上会导致性能下降。
 Multi-LoRA 通过在\underline{同一个训练过程中}共享基座解决了这个问题。<｜end▁of▁thinking｜>
 
-\subsection{使用场景建议}
+\subsection{实际部署场景分析}
 
-\begin{enumerate}[itemsep=3pt]
-\item \textbf{生产环境 + 精度优先}: 使用 \textbf{全量微调 (Full FT)}，每国 1.1GB 独立部署。
-\item \textbf{快速部署 + 接近 FT 精度}: 使用 \textbf{LoRA (独立, r=16)}，3MB 适配器，精度损失 $<$0.05。
-\item \textbf{多国服务 + 省空间}: 使用 \textbf{Multi-LoRA (r=8)}，
-1.12GB 覆盖 8 国，热切换。但需注意 Clean Recall 较低 (易误报)。
-\item \textbf{快速原型验证}: 使用 \textbf{Adapter}，训练最快但精度最低。
-\end{enumerate}
+\textbf{场景 1: 使用独立 LoRA 部署 8 国服务}
+
+独立 LoRA 的适配器文件只有 3MB，理论上可以加载一个基座 + 切换适配器:
+
+\begin{verbatim}
+# 加载基座一次
+base = AutoModelForSequenceClassification.from_pretrained(
+    "microsoft/mdeberta-v3-base", num_labels=2)
+
+# 服务 SG 请求
+sg_model = PeftModel.from_pretrained(base, "jianqiang0213/mdeberta-v3-SG-binary-lora")
+result = sg_model.predict(sg_text)
+
+# 服务 TH 请求 —— 需要重新加载 LoRA
+th_model = PeftModel.from_pretrained(base, "jianqiang0213/mdeberta-v3-TH-binary-lora")
+result = th_model.predict(th_text)
+\end{verbatim}
+
+\textbf{但实际上这样做的效果不好。}
+因为独立 LoRA 的每国训练是独立的——SA 训练时的基座、BR 训练时的基座、
+MX 训练时的基座，虽然初始权重相同，但在训练过程中梯度更新使基座向不同方向微调。
+将这些在不同基座上训练的适配器，强行加载到同一个"通用基座"上，
+会导致适配器权重与基座不匹配，性能下降。
+
+\textbf{Multi-LoRA 解决了这个问题:} 所有 8 国的适配器在\underline{同一个训练过程中}学习，
+基座权重保持共享状态，只有 LoRA 参数按国家更新。
+部署时一个基座 + 热切换:
+
+\begin{verbatim}
+# Multi-LoRA 部署方式
+shared_base = AutoModelForSequenceClassification.from_pretrained(
+    "microsoft/mdeberta-v3-base", num_labels=2)
+
+# 加载所有适配器 (每个 2MB)
+for country in ['SA','BR','MX','ID','SG','TH','TR','ZA']:
+    model.load_adapter(f"path/to/{country}/lora_weights", adapter_name=country)
+
+# 热切换 (毫秒级，无需重新加载模型)
+model.set_adapter("SG")
+result = model(sg_text)
+
+model.set_adapter("TH")  # 瞬间切换
+result = model(th_text)
+\end{verbatim}
+
+\textbf{对比总结:}
+
+\begin{table}[h]\centering
+\caption{独立 LoRA vs Multi-LoRA 部署对比}
+\begin{tabular}{@{}lp{4.5cm}p{4.5cm}@{}}\toprule
+\textbf{维度} & \textbf{独立 LoRA (8 次训练)} & \textbf{Multi-LoRA (1 次训练)} \\\midrule
+部署方式 & 加载 8 个独立模型 OR 1 基座+切换(有性能损失) & 1 基座 + 热切换适配器 \\
+8 国 GPU 内存 & 8$\times$1.1GB 或 1.1GB+8$\times$3MB & 1.1GB + 8$\times$2MB \\
+切换延迟 & 重新加载模型 (秒级) & set\_adapter() (毫秒级) \\
+适配器兼容性 & \textbf{不保证}——每国基座状态不同 & \textbf{保证}——同一训练过程 \\
+训练时间 & 8 次独立训练，可并行 & 1 次训练，顺序执行 \\
+精度 & 0.809 (独立优化) & 0.796 (共享约束) \\
+推荐场景 & 单国部署 & 多国 SaaS 服务 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{关键区别:}
+独立 LoRA 的 8 个适配器虽然可以加载到同一个基座上，
+但因为它们是在不同训练过程中学习的，适配器期望的基座状态各不相同。
+强行共用会导致性能下降。Multi-LoRA 通过在训练时就共享基座，
+从根本上解决了这个问题——但代价是精度略低 (0.796 vs 0.809)，
+因为共享基座限制了各国的独立优化空间。
+
+\textbf{实际建议:}
+\begin{itemize}
+\item 只部署 1--2 个国家: 使用独立 LoRA (r=16)，精度最高
+\item 部署 3+ 个国家: 使用 Multi-LoRA，1.12GB 覆盖全部，热切换
+\item 对精度要求极高的核心国家: 使用 Full FT 独立部署
+\end{itemize}
 
 \subsection{为什么 Multi-LoRA 的 Violation Recall 高但 Clean Recall 低?}
 
